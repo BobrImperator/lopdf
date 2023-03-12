@@ -17,6 +17,10 @@ pub use crate::incremental_document::IncrementalDocument;
 
 mod bookmarks;
 pub use crate::bookmarks::Bookmark;
+#[cfg(not(feature = "nom_parser"))]
+#[cfg(feature = "pom_parser")]
+#[path = "cmap_parser.rs"]
+mod cmap_parser;
 mod outlines;
 pub use crate::outlines::Outline;
 mod destinations;

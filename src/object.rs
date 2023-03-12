@@ -1,3 +1,6 @@
+use crate::encodings;
+use crate::encodings::cmap::ToUnicodeCMap;
+use crate::encodings::Encoding;
 use crate::{Document, Error, Result};
 use linked_hash_map::{self, Iter, IterMut, LinkedHashMap};
 use log::warn;
@@ -349,13 +352,22 @@ impl Dictionary {
     pub fn iter_mut(&mut self) -> IterMut<'_, Vec<u8>, Object> {
         self.0.iter_mut()
     }
-
-    pub fn get_font_encoding(&self) -> &str {
-        self.get(b"Encoding")
-            .and_then(Object::as_name_str)
-            .unwrap_or("StandardEncoding")
+    pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
+        match self.get(b"Encoding").and_then(Object::as_name_str) {
+            Ok("StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+            Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
+            Ok("MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
+            Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
+            Ok("Identity-H") => {
+                let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
+                let content = stream.get_plain_content()?;
+                let cmap = ToUnicodeCMap::parse(content)?;
+                Ok(Encoding::UnicodeMapEncoding(cmap))
+            }
+            Ok(name) => Ok(Encoding::SimpleEncoding(name)),
+            Err(_) => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+        }
     }
-
     pub fn extend(&mut self, other: &Dictionary) {
         let keep_both_objects =
             |new_dict: &mut LinkedHashMap<Vec<u8>, Object>, key: &Vec<u8>, value: &Object, old_value: &Object| {
@@ -487,6 +499,12 @@ impl Stream {
         }
     }
 
+    pub fn get_plain_content(&self) -> Result<Vec<u8>> {
+        match self.filters() {
+            Ok(vec) if vec.len() > 0 => self.decompressed_content(),
+            _ => Ok(self.content.clone()),
+        }
+    }
     pub fn with_position(dict: Dictionary, position: usize) -> Stream {
         Stream {
             dict,
